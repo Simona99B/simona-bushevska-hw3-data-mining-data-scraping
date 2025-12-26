@@ -4,6 +4,8 @@ import json
 import os
 import plotly.express as px
 from transformers import pipeline
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
 
 # --- 1. RENDER DEPLOYMENT OPTIMIZATION ---
 # Force the transformer model to use CPU to prevent memory crashes on Render's free tier
@@ -79,7 +81,6 @@ if df_prod is not None:
             target = col_left if i % 2 == 0 else col_right
             with target:
                 with st.container(border=True):
-                    # Show User and Rating in a header row
                     h1, h2 = st.columns([3, 1])
                     h1.markdown(f"👤 **Customer #{row['id']}**")
                     stars = "⭐" * int(row['rating'])
@@ -90,12 +91,10 @@ if df_prod is not None:
     elif page == "Reviews":
         st.header("⭐ Sentiment Analysis & Monthly Insights")
         
-        # Month Dropdown for 2023
         months_list = ["January", "February", "March", "April", "May", "June", 
                        "July", "August", "September", "October", "November", "December"]
         selected_month = st.selectbox("Select Month (2023):", options=months_list, index=4)
 
-        # Filter Logic
         filtered_df = df_rev[
             (df_rev['date'].dt.year == 2023) & 
             (df_rev['date'].dt.month_name() == selected_month)
@@ -104,22 +103,21 @@ if df_prod is not None:
         st.divider()
 
         if not filtered_df.empty:
-            # LOADING SPINNER for Transformer
+            # AI Classification with Spinner
             with st.spinner(f'🤖 AI is classifying {len(filtered_df)} reviews...'):
                 raw_texts = filtered_df['text'].tolist()
                 ai_results = classifier(raw_texts)
                 
-                # Append results to DF
                 filtered_df['Sentiment'] = [res['label'] for res in ai_results]
                 filtered_df['Raw_Score'] = [res['score'] for res in ai_results]
                 filtered_df['Confidence'] = filtered_df['Raw_Score'].apply(lambda x: f"{x:.1%}")
 
             # --- SIDE-BY-SIDE VISUALIZATION ---
-            chart_col, table_col = st.columns([1, 3], gap="medium")
+            chart_col, table_col = st.columns([1, 2], gap="large")
 
             with chart_col:
-                st.subheader("Sentiment")
-                # Group for small chart
+                # Part A: Sentiment Bar Chart
+                st.subheader("Sentiment Distribution")
                 chart_data = filtered_df.groupby('Sentiment').agg(
                     Count=('Sentiment', 'size'),
                     Avg_Conf=('Raw_Score', 'mean')
@@ -131,21 +129,37 @@ if df_prod is not None:
                     text='Count',
                     color_discrete_map={'POSITIVE': '#00875A', 'NEGATIVE': '#DE350B'},
                     hover_data={'Avg_Conf': ':.1%'},
-                    height=300
+                    height=250
                 )
-                
                 fig.update_layout(
                     margin=dict(l=0, r=0, t=10, b=0),
                     showlegend=False, xaxis_title=None, yaxis_title=None,
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
                 )
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                st.metric("Avg. Confidence", f"{filtered_df['Raw_Score'].mean():.1%}")
+                
+                # Part B: Word Cloud
+                st.subheader("Key Keywords")
+                text_combined = " ".join(review for review in filtered_df['text'])
+                if text_combined.strip():
+                    wc = WordCloud(
+                        background_color="white", 
+                        max_words=50, 
+                        colormap='Dark2',
+                        width=600,
+                        height=300
+                    ).generate(text_combined)
+                    
+                    fig_wc, ax = plt.subplots()
+                    ax.imshow(wc, interpolation='bilinear')
+                    ax.axis("off")
+                    st.pyplot(fig_wc)
+                
+                st.metric("Avg. Model Confidence", f"{filtered_df['Raw_Score'].mean():.1%}")
 
             with table_col:
-                st.subheader("Details")
+                st.subheader("Detailed Reviews")
                 
-                # High contrast styling
                 def sentiment_color(val):
                     bg = '#00875A' if val == 'POSITIVE' else '#DE350B'
                     return f'background-color: {bg}; color: white; font-weight: bold; border-radius: 4px;'
@@ -156,11 +170,11 @@ if df_prod is not None:
                     ),
                     use_container_width=True, 
                     hide_index=True,
-                    height=400 
+                    height=600 
                 )
         else:
             st.warning(f"No reviews found for {selected_month} 2023.")
 
 # Sidebar Footer
 st.sidebar.markdown("---")
-st.sidebar.caption("Homework #3 | Streamlit + Hugging Face")
+st.sidebar.caption("Homework #3 | Streamlit + Hugging Face + WordCloud")
